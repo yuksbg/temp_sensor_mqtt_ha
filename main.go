@@ -229,15 +229,29 @@ func main() {
 		log.WithError(err).Fatal("Error getting CPU information")
 	}
 
-	opts := MQTT.NewClientOptions().AddBroker(*mqttBroker)
-	opts.SetClientID(*clientID)
+	// MQTT client options
+	opts := MQTT.NewClientOptions().
+		AddBroker(*mqttBroker).
+		SetClientID(*clientID).
+		SetAutoReconnect(true).
+		SetConnectRetry(true).
+		SetConnectRetryInterval(10 * time.Second).
+		SetOnConnectHandler(func(c MQTT.Client) {
+			log.Info("Connected to MQTT broker")
+			// Publish the config message after reconnecting
+			publishConfig(c, model, manufacturer, stateTopic, configTopic)
+		}).
+		SetConnectionLostHandler(func(c MQTT.Client, err error) {
+			log.WithError(err).Warn("Connection to MQTT broker lost. Attempting to reconnect...")
+		})
 
 	client := MQTT.NewClient(opts)
 	if token := client.Connect(); token.Wait() && token.Error() != nil {
 		log.WithError(token.Error()).Fatal("Failed to connect to MQTT broker")
 	}
 
-	publishConfig(client, model, manufacturer, stateTopic, configTopic) // Send the config message once with CPU details
+	// Publish the config message on the initial connection
+	publishConfig(client, model, manufacturer, stateTopic, configTopic)
 
 	for {
 		temp, err := getTemperature()
